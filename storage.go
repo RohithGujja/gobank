@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	_ "github.com/lib/pq"
 )
 
@@ -68,11 +69,19 @@ func (s *PostgresStorage) CreateAccount(a *Account) error {
 }
 
 func (s *PostgresStorage) DeleteAccount(id int) error {
-	return nil
+	_, err := s.db.Query("delete from account where id = $1", id)
+	return err
 }
 
 func (s *PostgresStorage) GetAccountByID(id int) (*Account, error) {
-	return nil, nil
+	rows, err := s.db.Query("select * from account where id = $1", id)
+	if err != nil {
+		return nil, err
+	}
+	if rows.Next() {
+		return scanIntoAccount(rows)
+	}
+	return nil, fmt.Errorf("no records found for account with id: '%d'", id)
 }
 
 func (s *PostgresStorage) UpdateAccount(account *Account) error {
@@ -87,11 +96,17 @@ func (s *PostgresStorage) GetAllAccounts() ([]*Account, error) {
 
 	accounts := make([]*Account, 0)
 	for rows.Next() {
-		a := new(Account)
-		if err := rows.Scan(&a.ID, &a.FirstName, &a.LastName, &a.Number, &a.Balance, &a.CreatedAt); err != nil {
+		account, err := scanIntoAccount(rows)
+		if err != nil {
 			return nil, err
 		}
-		accounts = append(accounts, a)
+		accounts = append(accounts, account)
 	}
 	return accounts, nil
+}
+
+func scanIntoAccount(rows *sql.Rows) (*Account, error) {
+	a := new(Account)
+	err := rows.Scan(&a.ID, &a.FirstName, &a.LastName, &a.Number, &a.Balance, &a.CreatedAt)
+	return a, err
 }
