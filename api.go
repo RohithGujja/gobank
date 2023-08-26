@@ -27,6 +27,7 @@ func NewAPIServer(addr string, s Storage) *APIServer {
 func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
+	router.HandleFunc("/login", makeHTTPHandlerFunc(s.handleLogin))
 	router.HandleFunc("/account", makeHTTPHandlerFunc(s.handleAccount))
 	router.HandleFunc("/account/{id}", withJWTAuth(makeHTTPHandlerFunc(s.handleAccountByID), s.storage))
 	router.HandleFunc("/transfer", makeHTTPHandlerFunc(s.handleTransfer))
@@ -37,6 +38,37 @@ func (s *APIServer) Run() {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		return fmt.Errorf("method not allowed, %s", r.Method)
+	}
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return err
+	}
+
+	acc, err := s.storage.GetAccountByNumber(int(req.Number))
+	if err != nil {
+		return WriteJSON(w, http.StatusBadRequest, "no account found with this number, please register!!")
+	}
+
+	if !acc.ValidatePassword(req.Password) {
+		return fmt.Errorf("not authenticated")
+	}
+
+	tokenString, err := createJWT(acc)
+	if err != nil {
+		return err
+	}
+
+	res := LoginResponse{
+		Number: acc.Number,
+		Token:  tokenString,
+	}
+
+	return WriteJSON(w, http.StatusOK, res)
 }
 
 func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error {
@@ -87,8 +119,12 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
-	account := NewAccount(req.FirstName, req.LastName)
-	err := s.storage.CreateAccount(account)
+	account, err := NewAccount(req.FirstName, req.LastName, req.Password)
+	if err != nil {
+		return err
+	}
+
+	err = s.storage.CreateAccount(account)
 	if err != nil {
 		return err
 	}
@@ -98,9 +134,13 @@ func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
-	fmt.Println("JWT token:", tokenString)
+	res := CreateAccountResponse{
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+		Token:     tokenString,
+	}
 
-	return WriteJSON(w, http.StatusOK, account)
+	return WriteJSON(w, http.StatusOK, res)
 }
 
 func (s *APIServer) handleDeleteAccount(w http.ResponseWriter, r *http.Request) error {

@@ -10,6 +10,7 @@ type Storage interface {
 	CreateAccount(*Account) error
 	DeleteAccount(int) error
 	GetAccountByID(int) (*Account, error)
+	GetAccountByNumber(int) (*Account, error)
 	UpdateAccount(*Account) error
 	GetAllAccounts() ([]*Account, error)
 }
@@ -43,6 +44,7 @@ func (s *PostgresStorage) createAccountTable() error {
 			id serial primary key,
 			first_name varchar(50),
 			last_name varchar(50),
+    		encrypted_password varchar(100),
     		number serial,
 			balance serial,
 			created_at timestamp
@@ -61,16 +63,27 @@ func (s *PostgresStorage) dropAccountTable() error {
 
 func (s *PostgresStorage) CreateAccount(a *Account) error {
 	query := `
-	insert into account (first_name, last_name, number, balance, created_at) 
-    VALUES ($1, $2, $3, $4, $5)`
+	insert into account (first_name, last_name, encrypted_password, number, balance, created_at) 
+    VALUES ($1, $2, $3, $4, $5, $6)`
 
-	_, err := s.db.Query(query, a.FirstName, a.LastName, a.Number, a.Balance, a.CreatedAt)
+	_, err := s.db.Query(query, a.FirstName, a.LastName, a.EncryptedPassword, a.Number, a.Balance, a.CreatedAt)
 	return err
 }
 
 func (s *PostgresStorage) DeleteAccount(id int) error {
 	_, err := s.db.Query("delete from account where id = $1", id)
 	return err
+}
+
+func (s *PostgresStorage) GetAccountByNumber(number int) (*Account, error) {
+	rows, err := s.db.Query("select * from account where number = $1", number)
+	if err != nil {
+		return nil, err
+	}
+	if rows.Next() {
+		return scanIntoAccount(rows)
+	}
+	return nil, fmt.Errorf("no records found for account with number: '%d'", number)
 }
 
 func (s *PostgresStorage) GetAccountByID(id int) (*Account, error) {
@@ -107,6 +120,6 @@ func (s *PostgresStorage) GetAllAccounts() ([]*Account, error) {
 
 func scanIntoAccount(rows *sql.Rows) (*Account, error) {
 	a := new(Account)
-	err := rows.Scan(&a.ID, &a.FirstName, &a.LastName, &a.Number, &a.Balance, &a.CreatedAt)
+	err := rows.Scan(&a.ID, &a.FirstName, &a.LastName, &a.EncryptedPassword, &a.Number, &a.Balance, &a.CreatedAt)
 	return a, err
 }
